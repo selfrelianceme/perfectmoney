@@ -24,9 +24,11 @@ class PerfectMoney
 		preg_match_all("/<input name='ERROR' type='hidden' value='(.*)'>/", $res->getBody(), $result, PREG_SET_ORDER);
 		if($result){
 			$this->errorMessage = $result[0][1];
+		}else{
+			preg_match_all("/<input name='".Config::get('perfectmoney.payee_account')."' type='hidden' value='(.*)'>/", $res->getBody(), $result, PREG_SET_ORDER);
+			return $result[0][1];
 		}
-
-		dump($this->errorMessage);
+		// dump($this->errorMessage);
 	}
 
 	function form($payment_id, $sum, $units='USD'){
@@ -54,7 +56,42 @@ class PerfectMoney
 			echo '</form>';
 		$content = ob_get_contents();
 		ob_end_clean();
-		return $content;		
+		return $content;
+	}
+
+	public function check_transaction(Request $request){
+		$PAYMENT_ID        = $request->input('PAYMENT_ID');
+		$PAYMENT_AMOUNT    = $request->input('PAYMENT_AMOUNT');
+		$PAYMENT_BATCH_NUM = $request->input('PAYMENT_BATCH_NUM');
+		$PAYER_ACCOUNT     = $request->input('PAYER_ACCOUNT');
+		$TIMESTAMPGMT      = $request->input('TIMESTAMPGMT');
+		$V2_HASH           = $request->input('V2_HASH');
+		$PAYEE_ACCOUNT     = $request->input('PAYEE_ACCOUNT');
+
+		$sign = @$PAYMENT_ID .":". Config::get('perfectmoney.payee_account') .":". @$PAYMENT_AMOUNT .":USD:". @$PAYMENT_BATCH_NUM .":". @$PAYER_ACCOUNT .":". strtoupper(md5(Config::get('perfectmoney.alt'))) .":". @$TIMESTAMPGMT;
+		$sign = strtoupper(md5($sign));
+
+		if(
+			$sign === $V2_HASH && 
+			$PAYEE_ACCOUNT == Config::get('perfectmoney.payee_account') && 
+			intval($PAYMENT_ID) > 0
+		){
+			try{
+				(new Deposit)
+					->amount($PAYMENT_AMOUNT)
+					->payment_id($PAYMENT_ID)
+					->payment_system(4)
+					->transaction($PAYMENT_BATCH_NUM)
+					->create();
+			}catch(\App\Exceptions\NotFoudDepositPlan $e){
+	            //Ошибка при создании депозита
+	            //Занести в лог
+	        }
+		}
+	}
+
+	public function send_money(){
+
 	}
 
 	function cancel_payment(Request $request){
@@ -62,7 +99,7 @@ class PerfectMoney
             'PAYMENT_ID' => 'required',
         ]);		
 		
-		(new Deposit)->cancel_purchase($request->input('PAYMENT_ID'));	
+		(new Deposit)->cancel_purchase($request->input('PAYMENT_ID'));
 
 		return redirect()->route('personal.index');
 	}
