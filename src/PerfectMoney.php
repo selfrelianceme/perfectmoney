@@ -7,11 +7,18 @@ use Config;
 use Route;
 
 use Illuminate\Foundation\Validation\ValidatesRequests;
-use App\Libraries\Deposit;
-class PerfectMoney
+
+use Selfreliance\PerfectMoney\Events\PerfectMoneyPaymentIncome;
+use Selfreliance\PerfectMoney\Events\PerfectMoneyPaymentCancel;
+
+use Selfreliance\PerfectMoney\PerfectMoneyInterface;
+
+class PerfectMoney implements PerfectMoneyInterface
 {
 	use ValidatesRequests;
+
 	public $errorMessage;
+
 	function balance(){
 		$client = new \GuzzleHttp\Client();
 		$res = $client->request('GET', 'https://perfectmoney.is/acct/balance.asp', [
@@ -22,13 +29,13 @@ class PerfectMoney
 		]);
 		
 		preg_match_all("/<input name='ERROR' type='hidden' value='(.*)'>/", $res->getBody(), $result, PREG_SET_ORDER);
+
 		if($result){
 			$this->errorMessage = $result[0][1];
 		}else{
 			preg_match_all("/<input name='".Config::get('perfectmoney.payee_account')."' type='hidden' value='(.*)'>/", $res->getBody(), $result, PREG_SET_ORDER);
 			return $result[0][1];
 		}
-		// dump($this->errorMessage);
 	}
 
 	function form($payment_id, $sum, $units='USD'){
@@ -59,14 +66,14 @@ class PerfectMoney
 		return $content;
 	}
 
-	public function check_transaction(Request $request){
-		$PAYMENT_ID        = $request->input('PAYMENT_ID');
-		$PAYMENT_AMOUNT    = $request->input('PAYMENT_AMOUNT');
-		$PAYMENT_BATCH_NUM = $request->input('PAYMENT_BATCH_NUM');
-		$PAYER_ACCOUNT     = $request->input('PAYER_ACCOUNT');
-		$TIMESTAMPGMT      = $request->input('TIMESTAMPGMT');
-		$V2_HASH           = $request->input('V2_HASH');
-		$PAYEE_ACCOUNT     = $request->input('PAYEE_ACCOUNT');
+	public function check_transaction($request){
+		$PAYMENT_ID        = $request['PAYMENT_ID'];
+		$PAYMENT_AMOUNT    = $request['PAYMENT_AMOUNT'];
+		$PAYMENT_BATCH_NUM = $request['PAYMENT_BATCH_NUM'];
+		$PAYER_ACCOUNT     = $request['PAYER_ACCOUNT'];
+		$TIMESTAMPGMT      = $request['TIMESTAMPGMT'];
+		$V2_HASH           = $request['V2_HASH'];
+		$PAYEE_ACCOUNT     = $request['PAYEE_ACCOUNT'];
 
 		$sign = @$PAYMENT_ID .":". Config::get('perfectmoney.payee_account') .":". @$PAYMENT_AMOUNT .":USD:". @$PAYMENT_BATCH_NUM .":". @$PAYER_ACCOUNT .":". strtoupper(md5(Config::get('perfectmoney.alt'))) .":". @$TIMESTAMPGMT;
 		$sign = strtoupper(md5($sign));
@@ -76,30 +83,29 @@ class PerfectMoney
 			$PAYEE_ACCOUNT == Config::get('perfectmoney.payee_account') && 
 			intval($PAYMENT_ID) > 0
 		){
-			try{
-				(new Deposit)
-					->amount($PAYMENT_AMOUNT)
-					->payment_id($PAYMENT_ID)
-					->payment_system(4)
-					->transaction($PAYMENT_BATCH_NUM)
-					->create();
-			}catch(\App\Exceptions\NotFoudDepositPlan $e){
-	            //Ошибка при создании депозита
-	            //Занести в лог
-	        }
+			
+			$PassData                 = new \stdClass();
+			$PassData->amount         = $PAYMENT_AMOUNT;
+			$PassData->payment_id     = $PAYMENT_ID;
+			$PassData->payment_system = 4;
+			$PassData->transaction    = $PAYMENT_BATCH_NUM;
+
+			event(new PerfectMoneyPaymentIncome($PassData));
+			return true;
 		}
+
+		return false;
 	}
 
-	public function send_money(){
+	public function send_money($data){
 
 	}
 
 	function cancel_payment(Request $request){
-		$this->validate($request, [
-            'PAYMENT_ID' => 'required',
-        ]);		
+		$PassData     = new \stdClass();
+		$PassData->id = $request->input('PAYMENT_ID');
 		
-		(new Deposit)->cancel_purchase($request->input('PAYMENT_ID'));
+		event(new PerfectMoneyPaymentCancel($PassData));
 
 		return redirect()->route('personal.index');
 	}
