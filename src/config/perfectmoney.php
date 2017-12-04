@@ -3,21 +3,21 @@ return [
 	/**
 	 * The account id in perfect money
 	 */
-	'account_id'    => "5694219",
+	'account_id'    => "",
 	/**
 	 * Password for account
 	 */
-	"account_pass"  => "Hfhfhg75dgHchyf",
+	"account_pass"  => "",
 	/**
 	 * Account for pay
 	 */
-	"payee_account" => "U14279704",
+	"payee_account" => "",
 	/**
 	 * Alt solt for api
 	 */
-	"alt"          => "N3y43oF51FOApygsHaRpoKCrT",
+	"alt"          => "",
 	/**
 	 * Name acount to show pay
 	 */
-	"account_name" => "CryptoMax10"
+	"account_name" => ""
 ];

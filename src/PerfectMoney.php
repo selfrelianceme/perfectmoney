@@ -7,19 +7,19 @@ use Config;
 use Route;
 
 use Illuminate\Foundation\Validation\ValidatesRequests;
+use Selfreliance\PerfectMoney\Exceptions\PerfectMoneyException;
 
 use Selfreliance\PerfectMoney\Events\PerfectMoneyPaymentIncome;
 use Selfreliance\PerfectMoney\Events\PerfectMoneyPaymentCancel;
 
 use Selfreliance\PerfectMoney\PerfectMoneyInterface;
+use Log;
 
 class PerfectMoney implements PerfectMoneyInterface
 {
 	use ValidatesRequests;
 
-	public $errorMessage;
-
-	function balance(){
+	function balance($unit = "USD"){
 		$client = new \GuzzleHttp\Client();
 		$res = $client->request('GET', 'https://perfectmoney.is/acct/balance.asp', [
 			'query' => [
@@ -31,11 +31,10 @@ class PerfectMoney implements PerfectMoneyInterface
 		preg_match_all("/<input name='ERROR' type='hidden' value='(.*)'>/", $res->getBody(), $result, PREG_SET_ORDER);
 
 		if($result){
-			$this->errorMessage = $result[0][1];
-		}else{
-			preg_match_all("/<input name='".Config::get('perfectmoney.payee_account')."' type='hidden' value='(.*)'>/", $res->getBody(), $result, PREG_SET_ORDER);
-			return $result[0][1];
+			throw new \Exception($result[0][1]);			
 		}
+		preg_match_all("/<input name='".Config::get('perfectmoney.payee_account')."' type='hidden' value='(.*)'>/", $res->getBody(), $result, PREG_SET_ORDER);
+		return $result[0][1];
 	}
 
 	function form($payment_id, $sum, $units='USD'){
@@ -66,39 +65,105 @@ class PerfectMoney implements PerfectMoneyInterface
 		return $content;
 	}
 
-	public function check_transaction($request){
-		$PAYMENT_ID        = $request['PAYMENT_ID'];
-		$PAYMENT_AMOUNT    = $request['PAYMENT_AMOUNT'];
-		$PAYMENT_BATCH_NUM = $request['PAYMENT_BATCH_NUM'];
-		$PAYER_ACCOUNT     = $request['PAYER_ACCOUNT'];
-		$TIMESTAMPGMT      = $request['TIMESTAMPGMT'];
-		$V2_HASH           = $request['V2_HASH'];
-		$PAYEE_ACCOUNT     = $request['PAYEE_ACCOUNT'];
+	public function validateIPNRequest(Request $request) {
+        return $this->check_transaction($request->all(), $request->server(), $request->headers);
+    }
+
+    public function validateIPN(array $post_data, array $server_data){
+		if(!isset($post_data['PAYMENT_ID'])){
+			throw new BlockDashException("For validate IPN need order id");
+		}
+
+		if($post_data['PAYMENT_AMOUNT'] <= 0){
+			throw new BlockDashException("Need amount for transaction");	
+		}
+
+		if($post_data['PAYEE_ACCOUNT'] != Config::get('perfectmoney.payee_account')){
+			throw new BlockDashException("Missing the required number of confirmations");
+		}
+
+		$PAYMENT_ID        = $post_data['PAYMENT_ID'];
+		$PAYMENT_AMOUNT    = $post_data['PAYMENT_AMOUNT'];
+		$PAYMENT_BATCH_NUM = $post_data['PAYMENT_BATCH_NUM'];
+		$PAYER_ACCOUNT     = $post_data['PAYER_ACCOUNT'];
+		$TIMESTAMPGMT      = $post_data['TIMESTAMPGMT'];
+		$V2_HASH           = $post_data['V2_HASH'];
+		$PAYEE_ACCOUNT     = $post_data['PAYEE_ACCOUNT'];
 
 		$sign = @$PAYMENT_ID .":". Config::get('perfectmoney.payee_account') .":". @$PAYMENT_AMOUNT .":USD:". @$PAYMENT_BATCH_NUM .":". @$PAYER_ACCOUNT .":". strtoupper(md5(Config::get('perfectmoney.alt'))) .":". @$TIMESTAMPGMT;
 		$sign = strtoupper(md5($sign));
 
-		if(
-			$sign === $V2_HASH && 
-			$PAYEE_ACCOUNT == Config::get('perfectmoney.payee_account') && 
-			intval($PAYMENT_ID) > 0
-		){
-			
-			$PassData                 = new \stdClass();
-			$PassData->amount         = $PAYMENT_AMOUNT;
-			$PassData->payment_id     = $PAYMENT_ID;
-			$PassData->payment_system = 4;
-			$PassData->transaction    = $PAYMENT_BATCH_NUM;
+		if($sign !== $V2_HASH){
+			throw new BlockDashException("Missing sign !== V2 Hash");
+		}
 
-			event(new PerfectMoneyPaymentIncome($PassData));
-			return true;
+		return true;
+	}
+
+	function check_transaction(array $request, array $server, $headers = []){
+		Log::info('Perfect Money IPN', [
+			'request' => $request,
+			'headers' => $headers,
+			'server'  => array_intersect_key($server, [
+				'PHP_AUTH_USER', 'PHP_AUTH_PW'
+			])
+		]);
+
+		try{
+			$is_complete = $this->validateIPN($request, $server);
+			if($is_complete){
+				$PassData                     = new \stdClass();
+				$PassData->amount             = $request['PAYMENT_AMOUNT'];
+				$PassData->payment_id         = $request['PAYMENT_ID'];
+				$PassData->transaction        = $request['PAYMENT_BATCH_NUM'];
+				$PassData->add_info           = [
+					"full_data_ipn" => json_encode($request)
+				];
+				event(new PerfectMoneyPaymentIncome($PassData));
+				return true;
+			}
+		}catch(PerfectMoneyException $e){
+			Log::error('Perfect Money IPN', [
+				'message' => $e->getMessage()
+			]);
 		}
 
 		return false;
 	}
 
-	public function send_money($data){
+	function send_money($payment_id, $amount, $address, $currency){
+		$amount = number_format($amount, 2, ".", "");
+		$client = new \GuzzleHttp\Client();
+		$res = $client->request('GET', 'https://perfectmoney.is/acct/confirm.asp', [
+			'query' => [
+				'AccountID'		=>	Config::get('perfectmoney.account_id'),
+				'PassPhrase'	=>	Config::get('perfectmoney.account_pass'),
+				'Payer_Account'	=>	Config::get('perfectmoney.payee_account'),
+				'Payee_Account'	=>	strtoupper(trim($address)),
+				'Amount'		=>	$amount,
+				'PAY_IN'		=>	$amount,
+				'Memo'			=>	Config::get('perfectmoney.account_name')." ".$payment_id,
+				'PAYMENT_ID'	=>	$payment_id
+		    ]
+		]);
 
+		preg_match_all("/<input name='ERROR' type='hidden' value='(.*)'>/", $res->getBody(), $result, PREG_SET_ORDER);
+		if($result){
+			throw new \Exception($result[0][1]);			
+		}
+
+		preg_match_all("/<input name='(.*)' type='hidden' value='(.*)'>/", $res->getBody(), $result, PREG_SET_ORDER);
+		$rezult="";
+		foreach($result as $item){$key=$item[1];$rezult[$key]=$item[2];}
+
+		$PassData              = new \stdClass();
+		$PassData->transaction = $rezult['PAYMENT_BATCH_NUM'];
+		$PassData->sending     = true;
+		$PassData->add_info    = [
+			"fee"       => $amount*0.5/100,
+			"full_data" => $rezult
+		];
+		return $PassData;
 	}
 
 	function cancel_payment(Request $request){
