@@ -153,8 +153,12 @@ class PerfectMoney implements PerfectMoneyInterface
 		}
 
 		preg_match_all("/<input name='(.*)' type='hidden' value='(.*)'>/", $res->getBody(), $result, PREG_SET_ORDER);
-		$rezult="";
-		foreach($result as $item){$key=$item[1];$rezult[$key]=$item[2];}
+		
+
+		$rezult = [];
+		foreach($result as $item){
+			$rezult[$item[1]] = $item[2];
+		}
 
 		$PassData              = new \stdClass();
 		$PassData->transaction = $rezult['PAYMENT_BATCH_NUM'];
