@@ -18,6 +18,11 @@ use Log;
 class PerfectMoney implements PerfectMoneyInterface
 {
 	use ValidatesRequests;
+	protected $memo;
+	public function memo($memo){
+		$this->memo = $memo;
+		return $this;
+	}
 
 	function balance($unit = "USD"){
 		$client = new \GuzzleHttp\Client();
@@ -46,12 +51,12 @@ class PerfectMoney implements PerfectMoneyInterface
 			"PAYMENT_AMOUNT"       => $sum,
 			"PAYMENT_UNITS"        => $units,
 			"STATUS_URL"           => route('perfectmoney.confirm'),
-			"PAYMENT_URL"          => route('personal.index'),
+			"PAYMENT_URL"          => env('PERSONAL_LINK_CAB'),
 			"PAYMENT_URL_METHOD"   => "POST",
 			"NOPAYMENT_URL"        => route('perfectmoney.cancel'),
 			"PAYER_ACCOUNT"        => "",
 			"NOPAYMENT_URL_METHOD" => "POST",
-			"SUGGESTED_MEMO"       => ""
+			"SUGGESTED_MEMO"       => ($this->memo)?$this->memo:null,
 		);
 		ob_start();
 			echo '<form class="form_payment" id="FORM_pay_ok" action="https://perfectmoney.is/api/step1.asp" method="POST">';
@@ -176,6 +181,6 @@ class PerfectMoney implements PerfectMoneyInterface
 		
 		event(new PerfectMoneyPaymentCancel($PassData));
 
-		return redirect()->route('personal.index');
+		return redirect(env('PERSONAL_LINK_CAB'));
 	}
 }
