@@ -51,7 +51,7 @@ class PerfectMoney implements PerfectMoneyInterface
 			"PAYMENT_AMOUNT"       => $sum,
 			"PAYMENT_UNITS"        => $units,
 			"STATUS_URL"           => route('perfectmoney.confirm'),
-			"PAYMENT_URL"          => env('PERSONAL_LINK_CAB'),
+			"PAYMENT_URL"          => route('perfectmoney.after_pay_to_cab'),
 			"PAYMENT_URL_METHOD"   => "POST",
 			"NOPAYMENT_URL"        => route('perfectmoney.cancel'),
 			"PAYER_ACCOUNT"        => "",
@@ -113,7 +113,9 @@ class PerfectMoney implements PerfectMoneyInterface
 				'PHP_AUTH_USER', 'PHP_AUTH_PW'
 			])
 		]);
-
+		$textReponce = [
+			'status' => 'success'
+		];
 		try{
 			$is_complete = $this->validateIPN($request, $server);
 			if($is_complete){
@@ -125,15 +127,14 @@ class PerfectMoney implements PerfectMoneyInterface
 					"full_data_ipn" => json_encode($request)
 				];
 				event(new PerfectMoneyPaymentIncome($PassData));
-				return true;
+				return \Response::json($textReponce, "200");
 			}
 		}catch(PerfectMoneyException $e){
 			Log::error('Perfect Money IPN', [
 				'message' => $e->getMessage()
 			]);
 		}
-
-		return false;
+		return \Response::json($textReponce, "200");
 	}
 
 	function send_money($payment_id, $amount, $address, $currency){
