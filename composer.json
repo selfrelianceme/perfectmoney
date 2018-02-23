@@ -1,7 +1,7 @@
 {
   "name": "selfreliance/perfectmoney",
   "type": "library",
-  "version": "0.0.4",
+  "version": "0.0.5",
   "description": "Perfect Money payment system for laravel",
   "keywords": ["laravel"],
   "homepage": "https://github.com/selfrelianceme/perfectmoney",

@@ -76,15 +76,15 @@ class PerfectMoney implements PerfectMoneyInterface
 
     public function validateIPN(array $post_data, array $server_data){
 		if(!isset($post_data['PAYMENT_ID'])){
-			throw new BlockDashException("For validate IPN need order id");
+			throw new PerfectMoneyException("For validate IPN need order id");
 		}
 
 		if($post_data['PAYMENT_AMOUNT'] <= 0){
-			throw new BlockDashException("Need amount for transaction");	
+			throw new PerfectMoneyException("Need amount for transaction");	
 		}
 
 		if($post_data['PAYEE_ACCOUNT'] != Config::get('perfectmoney.payee_account')){
-			throw new BlockDashException("Missing the required number of confirmations");
+			throw new PerfectMoneyException("Missing the required number of confirmations");
 		}
 
 		$PAYMENT_ID        = $post_data['PAYMENT_ID'];
@@ -99,7 +99,7 @@ class PerfectMoney implements PerfectMoneyInterface
 		$sign = strtoupper(md5($sign));
 
 		if($sign !== $V2_HASH){
-			throw new BlockDashException("Missing sign !== V2 Hash");
+			throw new PerfectMoneyException("Missing sign !== V2 Hash");
 		}
 
 		return true;
