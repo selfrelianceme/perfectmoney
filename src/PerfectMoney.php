@@ -182,6 +182,6 @@ class PerfectMoney implements PerfectMoneyInterface
 		
 		event(new PerfectMoneyPaymentCancel($PassData));
 
-		return redirect(env('PERSONAL_LINK_CAB'));
+		return redirect(Config::get('perfectmoney.to_account'));
 	}
 }
