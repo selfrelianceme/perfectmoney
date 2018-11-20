@@ -4,7 +4,6 @@ namespace Selfreliance\PerfectMoney;
 
 use Illuminate\Http\Request;
 use Config;
-use Route;
 
 use Illuminate\Foundation\Validation\ValidatesRequests;
 use Selfreliance\PerfectMoney\Exceptions\PerfectMoneyException;
@@ -13,8 +12,7 @@ use Selfreliance\PerfectMoney\Events\PerfectMoneyPaymentIncome;
 use Selfreliance\PerfectMoney\Events\PerfectMoneyPaymentCancel;
 
 use Selfreliance\PerfectMoney\PerfectMoneyInterface;
-use Log;
-
+use App\Models\MerchantPosts;
 class PerfectMoney implements PerfectMoneyInterface
 {
 	use ValidatesRequests;
@@ -84,7 +82,7 @@ class PerfectMoney implements PerfectMoneyInterface
 		}
 
 		if($post_data['PAYEE_ACCOUNT'] != Config::get('perfectmoney.payee_account')){
-			throw new PerfectMoneyException("Missing the required number of confirmations");
+			throw new PerfectMoneyException("Payeer dont admin account");
 		}
 
 		$PAYMENT_ID        = $post_data['PAYMENT_ID'];
@@ -106,12 +104,10 @@ class PerfectMoney implements PerfectMoneyInterface
 	}
 
 	function check_transaction(array $request, array $server, $headers = []){
-		Log::info('Perfect Money IPN', [
-			'request' => $request,
-			'headers' => $headers,
-			'server'  => array_intersect_key($server, [
-				'PHP_AUTH_USER', 'PHP_AUTH_PW'
-			])
+		MerchantPosts::create([
+			'type'      => 'PerfectMoney',
+			'ip'        => real_ip(),
+			'post_data' => $request
 		]);
 		$textReponce = [
 			'status' => 'success'
@@ -130,8 +126,10 @@ class PerfectMoney implements PerfectMoneyInterface
 				return \Response::json($textReponce, "200");
 			}
 		}catch(PerfectMoneyException $e){
-			Log::error('Perfect Money IPN', [
-				'message' => $e->getMessage()
+			MerchantPosts::create([
+				'type'      => 'PerfectMoney_Error',
+				'ip'        => real_ip(),
+				'post_data' => ['request' => $request, 'message' => $e->getMessage()],
 			]);
 		}
 		return \Response::json($textReponce, "200");
