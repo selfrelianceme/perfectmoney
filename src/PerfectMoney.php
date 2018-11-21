@@ -120,7 +120,7 @@ class PerfectMoney implements PerfectMoneyInterface
 				$PassData->payment_id         = $request['PAYMENT_ID'];
 				$PassData->transaction        = $request['PAYMENT_BATCH_NUM'];
 				$PassData->add_info           = [
-					"full_data_ipn" => json_encode($request)
+					"full_data_ipn" => $request
 				];
 				event(new PerfectMoneyPaymentIncome($PassData));
 				return \Response::json($textReponce, "200");
