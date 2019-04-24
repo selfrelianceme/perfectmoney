@@ -2,6 +2,7 @@
 
 namespace Selfreliance\PerfectMoney;
 
+use GuzzleHttp\Exception\GuzzleException;
 use Illuminate\Http\Request;
 use Config;
 
@@ -22,29 +23,44 @@ class PerfectMoney implements PerfectMoneyInterface
 		return $this;
 	}
 
-	function balance($unit = "USD"){
+    /**
+     * @param string $unit
+     * @return float
+     * @throws \Exception
+     */
+    function balance($unit = "USD"){
 		$client = new \GuzzleHttp\Client();
-		$res = $client->request('GET', 'https://perfectmoney.is/acct/balance.asp', [
-			'query' => [
-				"AccountID"  => Config::get('perfectmoney.account_id'),
-				"PassPhrase" => Config::get('perfectmoney.account_pass')
-			]
-		]);
-		
-		preg_match_all("/<input name='ERROR' type='hidden' value='(.*)'>/", $res->getBody(), $result, PREG_SET_ORDER);
+        try {
+            $res = $client->request('GET', 'https://perfectmoney.is/acct/balance.asp', [
+                'query' => [
+                    "AccountID"  => config('perfectmoney.account_id'),
+                    "PassPhrase" => config('perfectmoney.account_pass')
+                ]
+            ]);
+        } catch (GuzzleException $e) {
+            throw new \Exception($e->getMessage());
+        }
+
+        preg_match_all("/<input name='ERROR' type='hidden' value='(.*)'>/", $res->getBody(), $result, PREG_SET_ORDER);
 
 		if($result){
 			throw new \Exception($result[0][1]);			
 		}
-		preg_match_all("/<input name='".Config::get('perfectmoney.payee_account')."' type='hidden' value='(.*)'>/", $res->getBody(), $result, PREG_SET_ORDER);
+		preg_match_all("/<input name='".config('perfectmoney.payee_account')."' type='hidden' value='(.*)'>/", $res->getBody(), $result, PREG_SET_ORDER);
 		return $result[0][1];
 	}
 
-	function form($payment_id, $sum, $units='USD'){
+    /**
+     * @param int $payment_id
+     * @param float $sum
+     * @param string $units
+     * @return string
+     */
+    function form($payment_id, $sum, $units='USD'){
 		$sum = number_format($sum, 2, ".", "");
 		$form_data = array(
-			"PAYEE_ACCOUNT"        => Config::get('perfectmoney.payee_account'),
-			"PAYEE_NAME"           => Config::get('perfectmoney.account_name'),
+			"PAYEE_ACCOUNT"        => config('perfectmoney.payee_account'),
+			"PAYEE_NAME"           => config('perfectmoney.account_name'),
 			"PAYMENT_ID"           => $payment_id,
 			"PAYMENT_AMOUNT"       => $sum,
 			"PAYMENT_UNITS"        => $units,
@@ -68,10 +84,20 @@ class PerfectMoney implements PerfectMoneyInterface
 		return $content;
 	}
 
-	public function validateIPNRequest(Request $request) {
+    /**
+     * @param Request $request
+     * @return bool
+     */
+    public function validateIPNRequest(Request $request) {
         return $this->check_transaction($request->all(), $request->server(), $request->headers);
     }
 
+    /**
+     * @param array $post_data
+     * @param array $server_data
+     * @return bool
+     * @throws PerfectMoneyException
+     */
     public function validateIPN(array $post_data, array $server_data){
 		if(!isset($post_data['PAYMENT_ID'])){
 			throw new PerfectMoneyException("For validate IPN need order id");
@@ -81,7 +107,7 @@ class PerfectMoney implements PerfectMoneyInterface
 			throw new PerfectMoneyException("Need amount for transaction");	
 		}
 
-		if($post_data['PAYEE_ACCOUNT'] != Config::get('perfectmoney.payee_account')){
+		if($post_data['PAYEE_ACCOUNT'] != config('perfectmoney.payee_account')){
 			throw new PerfectMoneyException("Payeer dont admin account");
 		}
 
@@ -93,7 +119,7 @@ class PerfectMoney implements PerfectMoneyInterface
 		$V2_HASH           = $post_data['V2_HASH'];
 		$PAYEE_ACCOUNT     = $post_data['PAYEE_ACCOUNT'];
 
-		$sign = @$PAYMENT_ID .":". Config::get('perfectmoney.payee_account') .":". @$PAYMENT_AMOUNT .":USD:". @$PAYMENT_BATCH_NUM .":". @$PAYER_ACCOUNT .":". strtoupper(md5(Config::get('perfectmoney.alt'))) .":". @$TIMESTAMPGMT;
+		$sign = @$PAYMENT_ID .":". config('perfectmoney.payee_account') .":". @$PAYMENT_AMOUNT .":USD:". @$PAYMENT_BATCH_NUM .":". @$PAYER_ACCOUNT .":". strtoupper(md5(config('perfectmoney.alt'))) .":". @$TIMESTAMPGMT;
 		$sign = strtoupper(md5($sign));
 
 		if($sign !== $V2_HASH){
@@ -103,7 +129,13 @@ class PerfectMoney implements PerfectMoneyInterface
 		return true;
 	}
 
-	function check_transaction(array $request, array $server, $headers = []){
+    /**
+     * @param array $request
+     * @param array $server
+     * @param array $headers
+     * @return bool
+     */
+    function check_transaction(array $request, array $server, $headers = []){
 		MerchantPosts::create([
 			'type'      => 'PerfectMoney',
 			'ip'        => real_ip(),
@@ -135,18 +167,27 @@ class PerfectMoney implements PerfectMoneyInterface
 		return \Response::json($textReponce, "200");
 	}
 
-	function send_money($payment_id, $amount, $address, $currency){
+    /**
+     * @param int $payment_id
+     * @param float $amount
+     * @param $address
+     * @param string $currency
+     * @return bool|\stdClass
+     * @throws GuzzleException
+     * @throws \Exception
+     */
+    function send_money($payment_id, $amount, $address, $currency){
 		$amount = number_format($amount, 2, ".", "");
 		$client = new \GuzzleHttp\Client();
 		$res = $client->request('GET', 'https://perfectmoney.is/acct/confirm.asp', [
 			'query' => [
-				'AccountID'		=>	Config::get('perfectmoney.account_id'),
-				'PassPhrase'	=>	Config::get('perfectmoney.account_pass'),
-				'Payer_Account'	=>	Config::get('perfectmoney.payee_account'),
+				'AccountID'		=>	config('perfectmoney.account_id'),
+				'PassPhrase'	=>	config('perfectmoney.account_pass'),
+				'Payer_Account'	=>	config('perfectmoney.payee_account'),
 				'Payee_Account'	=>	strtoupper(trim($address)),
 				'Amount'		=>	$amount,
 				'PAY_IN'		=>	$amount,
-				'Memo'			=>	Config::get('perfectmoney.account_name')." ".$payment_id,
+				'Memo'			=>	config('perfectmoney.account_name')." ".$payment_id,
 				'PAYMENT_ID'	=>	$payment_id
 		    ]
 		]);
@@ -174,12 +215,16 @@ class PerfectMoney implements PerfectMoneyInterface
 		return $PassData;
 	}
 
-	function cancel_payment(Request $request){
+    /**
+     * @param Request $request
+     * @return \Illuminate\Http\RedirectResponse|\Illuminate\Routing\Redirector
+     */
+    function cancel_payment(Request $request){
 		$PassData     = new \stdClass();
 		$PassData->id = $request->input('PAYMENT_ID');
 		
 		event(new PerfectMoneyPaymentCancel($PassData));
 
-		return redirect(Config::get('perfectmoney.to_account'));
+		return redirect(config('perfectmoney.to_account'));
 	}
 }

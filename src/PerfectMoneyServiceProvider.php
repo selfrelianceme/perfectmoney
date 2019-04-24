@@ -28,6 +28,10 @@ class PerfectMoneyServiceProvider extends ServiceProvider
      */
     public function register()
     {
-        //
+        $this->app->bind(PerfectMoney::class, function () {
+            return new PerfectMoney();
+        });
+
+        $this->app->alias(PerfectMoney::class, 'payment.perfectmoney');
     }
 }
