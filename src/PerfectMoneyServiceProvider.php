@@ -28,6 +28,10 @@ class PerfectMoneyServiceProvider extends ServiceProvider
      */
     public function register()
     {
+        $this->mergeConfigFrom(
+            __DIR__.'/config/perfectmoney.php', 'perfectmoney'
+        );
+
         $this->app->bind(PerfectMoney::class, function () {
             return new PerfectMoney();
         });

@@ -4,7 +4,6 @@ namespace Selfreliance\PerfectMoney;
 
 use GuzzleHttp\Exception\GuzzleException;
 use Illuminate\Http\Request;
-use Config;
 
 use Illuminate\Foundation\Validation\ValidatesRequests;
 use Selfreliance\PerfectMoney\Exceptions\PerfectMoneyException;
